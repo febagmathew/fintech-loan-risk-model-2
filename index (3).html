@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fintech Risk Lab: Loan Default Prediction — Random Forest Notebook</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#0B0F17',
+            panel: '#0f172a',
+            editor: '#1e293b',
+            neon: '#00F5A0',
+            mint: '#00F5A0',
+            crimson: '#FF3B30',
+            cyan: '#00D2FF'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+            heading: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Custom styles: keyframes, scrollbars, cells, explanation boxes -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="bg-ink text-slate-200 font-sans antialiased">
+
+  <!-- Navbar -->
+  <header class="border-b border-slate-800">
+    <div class="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div class="min-w-0">
+        <h1 class="site-title">Fintech Risk Lab: Loan Default Prediction — Random Forest Notebook</h1>
+        <p class="mt-2 text-sm text-slate-400">Predict which of 1,000 loan applicants will default, one cell at a time. Every output explains what happens in the backend.</p>
+      </div>
+      <span class="pill self-start md:self-auto">Interactive Teaching Simulator</span>
+    </div>
+
+    <div class="max-w-4xl mx-auto px-4 pb-4 flex flex-wrap items-center justify-between gap-3">
+      <span class="kernel" id="kernel"><i></i><span id="kernel-text">Python 3 · kernel idle</span></span>
+      <div class="flex gap-2">
+        <button class="btn" id="clear-all" type="button" onclick="clearAll()">Clear outputs</button>
+        <button class="btn run" id="run-all" type="button" onclick="runAll()">Run all cells</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       LIVE RISK CALCULATOR & PLAYGROUND
+       Standalone, self-contained block — safe to lift into any page.
+       Markup lives here; behavior in script.js (initCalculator, computeRisk).
+       ============================================================ -->
+  <section id="calculator" class="max-w-4xl mx-auto px-4 pb-4" aria-label="Live risk calculator">
+    <div class="glass calc-shell">
+
+      <div class="calc-head">
+        <div>
+          <h2 class="calc-title">Live Risk Calculator</h2>
+          <p class="calc-sub">Move the controls — the score, zone and drivers update instantly. Same model as the notebook above.</p>
+        </div>
+        <span class="pill pill-cyan">Playground</span>
+      </div>
+
+      <div class="calc-grid">
+
+        <!-- Inputs -->
+        <div class="calc-inputs">
+
+          <div class="field">
+            <div class="field-label"><span>Credit Score</span><output class="field-val" id="v-credit">680</output></div>
+            <input type="range" id="in-credit" min="300" max="850" step="1" value="680" class="slider slider-mint">
+            <div class="field-scale"><span>300</span><span>850</span></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Annual Income</span><output class="field-val" id="v-income">₹53,95,000</output></div>
+            <input type="range" id="in-income" min="830000" max="16600000" step="83000" value="5395000" class="slider slider-cyan">
+            <div class="field-scale"><span>₹8.3L</span><span>₹1.66Cr+</span></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Loan Amount Requested</span><output class="field-val" id="v-loan">₹12,45,000</output></div>
+            <input type="range" id="in-loan" min="83000" max="4150000" step="41500" value="1245000" class="slider slider-cyan">
+            <div class="field-scale"><span>₹83k</span><span>₹41.5L</span></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Debt-to-Income Ratio</span><output class="field-val" id="v-dti">30%</output></div>
+            <input type="range" id="in-dti" min="0" max="100" step="1" value="30" class="slider slider-crimson">
+            <div class="field-scale"><span>0%</span><span>100%</span></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label"><span>Employment Status</span></div>
+              <select id="in-employment" class="select">
+                <option value="Employed" selected>Employed</option>
+                <option value="Self-Employed">Self-Employed</option>
+                <option value="Unemployed">Unemployed</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-label"><span>Home Ownership</span></div>
+              <select id="in-home" class="select">
+                <option value="Mortgage" selected>Mortgage</option>
+                <option value="Own">Own</option>
+                <option value="Rent">Rent</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn btn-cyan-solid" type="button" id="calc-reset" onclick="resetCalculator()">Reset to baseline</button>
+        </div>
+
+        <!-- Gauge + verdict -->
+        <div class="calc-gauge-col">
+          <div class="dial-wrap">
+            <svg class="dial" viewBox="0 0 220 130" aria-hidden="true">
+              <path class="dial-track" d="M 15 115 A 95 95 0 0 1 205 115" />
+              <path class="dial-fill" id="dial-fill" d="M 15 115 A 95 95 0 0 1 205 115" />
+              <line class="dial-needle" id="dial-needle" x1="110" y1="115" x2="110" y2="35" />
+              <circle class="dial-hub" cx="110" cy="115" r="7" />
+            </svg>
+            <div class="dial-readout">
+              <span class="dial-num" id="dial-num">0%</span>
+              <span class="dial-caption">default risk score</span>
+            </div>
+          </div>
+          <div class="verdict-badge" id="calc-verdict">
+            <span class="verdict-dot"></span>
+            <span id="calc-verdict-text">Low Risk — Auto Approved</span>
+          </div>
+          <div class="zone-legend">
+            <span><i class="zone-dot mint"></i>0–30% Auto Approved</span>
+            <span><i class="zone-dot amber"></i>31–60% Manual Review</span>
+            <span><i class="zone-dot crimson"></i>61–100% Declined</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feature contribution breakdown -->
+      <div class="contrib">
+        <div class="contrib-head">Top factors driving this score</div>
+        <div class="contrib-list" id="contrib-list"><!-- populated by script.js --></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Notebook: 12 cells. Code is filled in and outputs are rendered by script.js -->
+  <main id="notebook" class="max-w-4xl mx-auto px-4 py-8 flex flex-col gap-5">
+
+    <!-- In [1] -->
+    <section class="cell" id="cell-1" data-cell="1" style="--i:0" aria-label="Cell 1: Read Loan Default Dataset">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [1]:</span><h2>Read Loan Default Dataset</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(1, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(1)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-1" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 1"></textarea>
+      </div>
+      <div class="out" id="out-1" hidden>
+        <div class="out-label">Out [1]:</div>
+        <div class="out-body" id="out-body-1"></div>
+      </div>
+    </section>
+
+    <!-- In [2] -->
+    <section class="cell" id="cell-2" data-cell="2" style="--i:1" aria-label="Cell 2: Encode Categorical Features">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [2]:</span><h2>Encode Categorical Features</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(2, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(2)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-2" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 2"></textarea>
+      </div>
+      <div class="out" id="out-2" hidden>
+        <div class="out-label">Out [2]:</div>
+        <div class="out-body" id="out-body-2"></div>
+      </div>
+    </section>
+
+    <!-- In [3] -->
+    <section class="cell" id="cell-3" data-cell="3" style="--i:2" aria-label="Cell 3: Select Features (X) & Target (y)">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [3]:</span><h2>Select Features (X) &amp; Target (y)</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(3, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(3)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-3" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 3"></textarea>
+      </div>
+      <div class="out" id="out-3" hidden>
+        <div class="out-label">Out [3]:</div>
+        <div class="out-body" id="out-body-3"></div>
+      </div>
+    </section>
+
+    <!-- In [4] -->
+    <section class="cell" id="cell-4" data-cell="4" style="--i:3" aria-label="Cell 4: Train-Test Split (80/20)">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [4]:</span><h2>Train-Test Split (80/20)</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(4, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(4)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-4" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 4"></textarea>
+      </div>
+      <div class="out" id="out-4" hidden>
+        <div class="out-label">Out [4]:</div>
+        <div class="out-body" id="out-body-4"></div>
+      </div>
+    </section>
+
+    <!-- In [5] -->
+    <section class="cell" id="cell-5" data-cell="5" style="--i:4" aria-label="Cell 5: Fit Random Forest Classifier">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [5]:</span><h2>Fit Random Forest Classifier</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(5, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(5)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-5" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 5"></textarea>
+      </div>
+      <div class="out" id="out-5" hidden>
+        <div class="out-label">Out [5]:</div>
+        <div class="out-body" id="out-body-5"></div>
+      </div>
+    </section>
+
+    <!-- In [6] -->
+    <section class="cell" id="cell-6" data-cell="6" style="--i:5" aria-label="Cell 6: Ensemble Majority Voting Visualizer">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [6]:</span><h2>Ensemble Majority Voting Visualizer</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(6, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(6)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-6" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 6"></textarea>
+      </div>
+      <div class="out" id="out-6" hidden>
+        <div class="out-label">Out [6]:</div>
+        <div class="out-body" id="out-body-6"></div>
+      </div>
+    </section>
+
+    <!-- In [7] -->
+    <section class="cell" id="cell-7" data-cell="7" style="--i:6" aria-label="Cell 7: Feature Importance Analysis">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [7]:</span><h2>Feature Importance Analysis</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(7, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(7)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-7" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 7"></textarea>
+      </div>
+      <div class="out" id="out-7" hidden>
+        <div class="out-label">Out [7]:</div>
+        <div class="out-body" id="out-body-7"></div>
+      </div>
+    </section>
+
+    <!-- In [8] -->
+    <section class="cell" id="cell-8" data-cell="8" style="--i:7" aria-label="Cell 8: Testing — Predict Unseen Applicants">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [8]:</span><h2>Testing — Predict Unseen Applicants</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(8, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(8)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-8" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 8"></textarea>
+      </div>
+      <div class="out" id="out-8" hidden>
+        <div class="out-label">Out [8]:</div>
+        <div class="out-body" id="out-body-8"></div>
+      </div>
+    </section>
+
+    <!-- In [9] -->
+    <section class="cell" id="cell-9" data-cell="9" style="--i:8" aria-label="Cell 9: Confusion Matrix">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [9]:</span><h2>Confusion Matrix</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(9, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(9)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-9" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 9"></textarea>
+      </div>
+      <div class="out" id="out-9" hidden>
+        <div class="out-label">Out [9]:</div>
+        <div class="out-body" id="out-body-9"></div>
+      </div>
+    </section>
+
+    <!-- In [10] -->
+    <section class="cell" id="cell-10" data-cell="10" style="--i:9" aria-label="Cell 10: Evaluation Metrics Scorecard">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [10]:</span><h2>Evaluation Metrics Scorecard</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(10, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(10)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-10" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 10"></textarea>
+      </div>
+      <div class="out" id="out-10" hidden>
+        <div class="out-label">Out [10]:</div>
+        <div class="out-body" id="out-body-10"></div>
+      </div>
+    </section>
+
+    <!-- In [11] -->
+    <section class="cell" id="cell-11" data-cell="11" style="--i:10" aria-label="Cell 11: Prediction Setup — Single Loan Applicant">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [11]:</span><h2>Prediction Setup — Single Loan Applicant</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(11, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(11)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-11" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 11"></textarea>
+      </div>
+      <div class="out" id="out-11" hidden>
+        <div class="out-label">Out [11]:</div>
+        <div class="out-body" id="out-body-11"></div>
+      </div>
+    </section>
+
+    <!-- In [12] -->
+    <section class="cell" id="cell-12" data-cell="12" style="--i:11" aria-label="Cell 12: Complete Backend Pipeline">
+      <div class="cell-head">
+        <div class="cell-id"><span class="prompt">In [12]:</span><h2>Complete Backend Pipeline</h2></div>
+        <div class="cell-actions">
+          <button class="btn copy" type="button" onclick="copyCode(12, this)">Copy</button>
+          <button class="btn run" type="button" onclick="runCell(12)">Run Cell</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre aria-hidden="true"><code></code></pre>
+        <textarea id="code-12" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Editable Python code for cell 12"></textarea>
+      </div>
+      <div class="out" id="out-12" hidden>
+        <div class="out-label">Out [12]:</div>
+        <div class="out-body" id="out-body-12"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="max-w-4xl mx-auto px-4 pb-10 text-xs leading-6 text-slate-400">
+    Outputs in this notebook are pre-computed teaching values. The code cells are editable for practice, but no Python is executed in your browser.
+    Tip: press Ctrl/Cmd + Enter inside a cell to run it.
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
